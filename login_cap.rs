@@ -239,13 +239,7 @@ impl LoginCap {
 		println!("\n---Class: {}---",self.lc_class);
 		for (key,values) in self.lc_cap.iter() {
 		
-			let mut hold:String = String::new();
-			for (idx,val) in values.iter().enumerate() {
-				
-				let comma = if idx == values.len() - 1 { '\0' }else{ ',' }; 
-		 		hold = format!("{} {}{}",hold,val,comma);
-				
-			}
+			let hold = values.join(", ").to_string();
 			// format right with a set spacing of 20
 			println!("{:<20} {}",key,hold);
 		} 
