@@ -47,15 +47,20 @@ fn bsd_pledge(promise:&str,exec:Option<&str>)->Result<(),Error>
 		Ok(ok) => ok,
 		Err(e) => return Err(Error::other(e)), 
 	};
-	let c_exec_ptr:*const c_char = match exec {
-		Some(s) => {  
+	let c_exec:Option<CString> = match exec {
+		Some(s) => {
 			match CString::new(s) {
-				Ok(ok) => ok.as_ptr(),
+				Ok(ok) => Some(ok),
 				Err(e) => return Err(Error::other(e)),
 			}
-		}
- 		None => ptr::null() as *const c_char,
+		} 
+		None => None,
 	};
+	let c_exec_ptr:*const c_char = match c_exec.as_ref() {
+		Some(s) => s.as_ptr() as *const c_char,
+		None => ptr::null() as *const c_char,
+	};
+	
 	if unsafe { pledge(c_promise.as_ptr(),c_exec_ptr)} == -1 {
 		return Err(OS_ERR());
 	}
