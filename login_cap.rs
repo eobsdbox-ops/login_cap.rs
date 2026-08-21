@@ -84,7 +84,7 @@ impl LoginCap {
 	fn search_file(mut self)->Result<LoginCap,Error>
 	{
 		// Check /etc/login.conf.d {} is format specifer
-		let	classfile = format!("{PATH_LOGIN_CONFD}/{}",&self.lc_class); 
+		let	classfile = format!("{PATH_LOGIN_CONFD}/{}",self.lc_class); 
 		
 		// exist = ok(true) and ok(false) then Err 
 		let mut found:bool = if let Ok(true_false) = fs::exists(&classfile) { true_false } else { false }; 
