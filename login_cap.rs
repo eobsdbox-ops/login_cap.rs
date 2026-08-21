@@ -104,6 +104,9 @@ impl LoginCap {
 			OpenOptions::new().read(true).open(PATH_LOGIN_CONF)?
 		};
 		
+		// found is used for file(above) and for class(below)
+		found = false;
+		
 		let mut lc:LoginCap = LoginCap::new();
 		while let Some(line) = file_lines.next() {
 			
