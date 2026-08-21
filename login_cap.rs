@@ -162,7 +162,7 @@ impl LoginCap {
 	}
 	fn process_str(&mut self,data:&str)->Result<bool,Error>
 	{
-		// need a useless number to state start is unset or set
+		// need a number to state start is unset or set
 		let data_len:usize = data.len();
 				
 		let mut flg:u8 = 0;
