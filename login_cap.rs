@@ -109,6 +109,10 @@ impl LoginCap {
 				Ok(ok)=> ok,
 				Err(e)=> return Err(e),
 			};
+			// skip remarks
+			if data.starts_with('#') {
+				continue;
+			}
 			// Set Class Name
 			if !found && data.starts_with(&self.lc_class) {
 				
@@ -139,12 +143,9 @@ impl LoginCap {
 	}
 	fn class_from_str(&mut self,data:&str)->bool 
 	{
-		// take_while is a if in the chain
-		let class:String = data.chars().take_while(|a| *a != ':').collect();
-				
-		// match exact no default1
-		// return true or false
-		self.lc_class == class
+		let Some(end) = &data.find(':') else { return false }
+		self.lc_class == &data[0..end]
+		
 	}
 	fn process_str(&mut self,data:&str)->Result<bool,Error>
 	{
