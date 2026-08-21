@@ -92,18 +92,17 @@ impl LoginCap {
 		// Check /etc/login.conf.d {} is format specifer
 		let	classfile = format!("{PATH_LOGIN_CONFD}/{}",class); 
 		
-		// login.conf.d/class
-		let mut file_lines = match OpenOptions::new().read(true).open(classfile) {
-			Ok(ok)=> BufReader::new(ok).lines(),
-			Err(e1) => { // check login.conf
-				match OpenOptions::new().read(true).open(PATH_LOGIN_CONF) {
-					Ok(ok) => BufReader::new(ok).lines(),
-					Err(e2) => return Err(Error::other(format!("{e1}\n{e2}"))),
-				}
-			}
+		// exist = ok(true) and ok(false) then Err 
+		let mut found:bool = if let Ok(true_false) = fs::exists(&classfile) { true_false } else { false };
+		
+		let file = if found {
+			// We have a error we have default but this exist
+			// and there is a problem.
+			OpenOptions::new().read(true).open(classfile)?
+		}else {	
+			// ? just return on error
+			OpenOptions::new().read(true).open(PATH_LOGIN_CONF)?
 		};
-		// class found
-		let mut found = false;
 		
 		let mut lc:LoginCap = LoginCap::new();
 		while let Some(line) = file_lines.next() {
@@ -234,6 +233,11 @@ impl LoginCap {
 		// if \ theres more else we are done
 		Ok(flg == 3)
 	}
+	fn style(&self)->Option<String>
+	{
+		let Some(svec) = self.lc_cap.get("auth") else{ return None; };
+		svec.get(0).cloned()
+	}
 	fn print(&self)
 	{
 		println!("\n---Class: {}---",self.lc_class);
@@ -243,15 +247,20 @@ impl LoginCap {
 			// format right with a set spacing of 20
 			println!("{:<20} {}",key,hold);
 		} 
+		if let Some(s) = &self.style() { 
+			println!("{:<20} {}","style",s);
+		}
 		println!("\n---total {}---",self.lc_cap.len());
 	}
 }
 
 fn main()
 {
-	if fs::exists(PATH_LOGIN_CONFD).is_ok() {
-		if let Err(e) = bsd_unveil(PATH_LOGIN_CONFD,"r"){
-			eprintln!("{e}");
+	if let Ok(true_false) = fs::exists(PATH_LOGIN_CONFD) {
+		if true_false {
+			if let Err(e) = bsd_unveil(PATH_LOGIN_CONFD,"r"){
+				eprintln!("{e}");
+			}
 		}
 	}
 	if let Err(e) = bsd_unveil(PATH_LOGIN_CONF,"r"){
