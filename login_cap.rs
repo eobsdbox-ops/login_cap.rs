@@ -2,12 +2,10 @@
 *  Rust for OpenBSD x86_64
 *  login_cap
 */
-
-
-
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::{Error,BufReader,BufRead};
+use std::path::Path;
 use std::collections::BTreeMap;
 
 // for pledge and unveil
@@ -40,7 +38,6 @@ fn bsd_unveil(path:&str,perm:&str)->Result<(),Error>
 	Ok(())
 }
 
-
 fn bsd_pledge(promise:&str,exec:Option<&str>)->Result<(),Error>
 {
 	let c_promise:CString = match CString::new(promise) {
@@ -60,7 +57,6 @@ fn bsd_pledge(promise:&str,exec:Option<&str>)->Result<(),Error>
 		Some(s) => s.as_ptr() as *const c_char,
 		None => ptr::null() as *const c_char,
 	};
-	
 	if unsafe { pledge(c_promise.as_ptr(),c_exec_ptr)} == -1 {
 		return Err(OS_ERR());
 	}
@@ -74,40 +70,38 @@ struct LoginCap {
 	lc_class:String,
 	// key,values
 	lc_cap:BTreeMap<String,Vec<String>>,
-	// unknown still need to research
-	// lc_style:Vec<String>,
 }
 
 impl LoginCap {
-	pub fn new()->Self
+	pub fn new(class:&str)->Self
 	{
 		LoginCap {
-			lc_class:String::new(),
+			lc_class:class.to_string(),
 			lc_cap:BTreeMap::new(),
-			// lc_style:Vec::new(),
 		}
 	}
-	fn search_file(class:&str)->Result<LoginCap,Error>
+	
+	fn search_file(mut self)->Result<LoginCap,Error>
 	{
 		// Check /etc/login.conf.d {} is format specifer
-		let	classfile = format!("{PATH_LOGIN_CONFD}/{}",class); 
+		let	classfile = format!("{PATH_LOGIN_CONFD}/{}",&self.lc_class); 
 		
 		// exist = ok(true) and ok(false) then Err 
-		let mut found:bool = if let Ok(true_false) = fs::exists(&classfile) { true_false } else { false };
+		let mut found:bool = if let Ok(true_false) = fs::exists(&classfile) { true_false } else { false }; 
 		
 		let file = if found {
-			// We have a error we have default but this exist
-			// and there is a problem.
+			// ? just return on error
 			OpenOptions::new().read(true).open(classfile)?
 		}else {	
 			// ? just return on error
 			OpenOptions::new().read(true).open(PATH_LOGIN_CONF)?
 		};
 		
+		let mut file_lines = BufReader::new(file).lines();
+		
 		// found is used for file(above) and for class(below)
 		found = false;
 		
-		let mut lc:LoginCap = LoginCap::new();
 		while let Some(line) = file_lines.next() {
 			
 			// Convert line to string
@@ -116,20 +110,17 @@ impl LoginCap {
 				Err(e)=> return Err(e),
 			};
 			// Set Class Name
-			if !found && data.starts_with(class) {
-				
-				// Set lc_class to verify it with data
-				lc.lc_class = class.to_string();
+			if !found && data.starts_with(&self.lc_class) {
 				
 				// verify
-				found = lc.class_from_str(&data);
+				found = self.class_from_str(&data);
 				
 				// fail verify or data on another line
 				if !found || data.contains('\\') { 
 					continue; 
 				}
 				// single line class  
-				data = if let Some(s) = data.strip_prefix(class) { 
+				data = if let Some(s) = data.strip_prefix(&self.lc_class) { 
 						s.to_string() 
 				} else { 
 						return Err(Error::other(format!("bad format: {data}"))); 
@@ -138,10 +129,8 @@ impl LoginCap {
 			}
 			// process key value pairs						
 			if found {
-				match lc.process_str(&data) {
-					Ok(ok) => {
-						if ok { continue; } else { return Ok(lc) }
-					}
+				match self.process_str(&data) {
+					Ok(ok) => if ok { continue; } else { return Ok(self) },
 					Err(e) => return Err(Error::other(e)),
 				}
 			}
@@ -209,7 +198,7 @@ impl LoginCap {
 					values.push(&data[start..=end]);
 					start = data_len;
 				} 
-				// key = 1 | 2 change end to current index
+				// key = 1 set start if 0 change end to current index
 				('0'..='9' | 'A'..='Z' | 'a'..='z' | '@' | '-' | '/' | ' ',1 | 2) => 
 					if start != data_len { end = ch.0 }else{ start = ch.0; end = start }, 
 				// good for debugging range above
@@ -245,9 +234,7 @@ impl LoginCap {
 	{
 		println!("\n---Class: {}---",self.lc_class);
 		for (key,values) in self.lc_cap.iter() {
-		
 			let hold = values.join(", ").to_string();
-			// format right with a set spacing of 20
 			println!("{:<20} {}",key,hold);
 		} 
 		if let Some(s) = &self.style() { 
@@ -259,11 +246,9 @@ impl LoginCap {
 
 fn main()
 {
-	if let Ok(true_false) = fs::exists(PATH_LOGIN_CONFD) {
-		if true_false {
-			if let Err(e) = bsd_unveil(PATH_LOGIN_CONFD,"r"){
-				eprintln!("{e}");
-			}
+	if Path::new(PATH_LOGIN_CONFD).exists() {
+		if let Err(e) = bsd_unveil(PATH_LOGIN_CONFD,"r"){
+			eprintln!("{e}");
 		}
 	}
 	if let Err(e) = bsd_unveil(PATH_LOGIN_CONF,"r"){
@@ -273,7 +258,7 @@ fn main()
 		eprintln!("{e}");
 	}
 	
-	let mut lc = match LoginCap::search_file("staff"){
+	let mut lc = match LoginCap::new("staff").search_file(){
 		Ok(ok) => ok,
 		Err(e) => { eprintln!("{e}");return; }
 	};
@@ -287,7 +272,7 @@ fn main()
 		for class in tc_values {
 			// find tc values aka inherit class
 			println!("\nchecking class: {class}");
-			let Ok(lc2) = LoginCap::search_file(&class) else{ continue };
+			let Ok(lc2) = LoginCap::new(&class).search_file() else{ continue };
 			
 			for key in lc2.lc_cap.keys() {	
 				if lc.lc_cap.contains_key(key) {
