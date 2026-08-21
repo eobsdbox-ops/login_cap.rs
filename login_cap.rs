@@ -142,12 +142,9 @@ impl LoginCap {
 		// take_while is a if in the chain
 		let class:String = data.chars().take_while(|a| *a != ':').collect();
 				
-		// match it exact no default1 
-		if self.lc_class == class {
-			return true;
-		}
-		// founded
-		false
+		// match exact no default1
+		// return true or false
+		self.lc_class == class
 	}
 	fn process_str(&mut self,data:&str)->Result<bool,Error>
 	{
