@@ -2,6 +2,8 @@
 *  Rust for OpenBSD x86_64
 *  login_cap
 */
+use std::env;
+use std::process::ExitCode;
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::{Error,BufReader,BufRead};
@@ -15,7 +17,14 @@ use std::ptr;
 const PATH_LOGIN_CONF:&str = "/etc/login.conf";
 const PATH_LOGIN_CONFD:&str = "/etc/login.conf.d";
 const PLEDGE:&str = "stdio rpath";
+const STYLE_KEY:&str = "auth";
+ 
 const OS_ERR:fn()->std::io::Error = Error::last_os_error;
+const OERR_STR:fn(&str)->std::io::Error = |s:&str| { Error::other(s) };
+const OERR_FMT:fn(String)->std::io::Error = | s | { Error::other(s) };
+
+const EXIT_FAIL:ExitCode = ExitCode::FAILURE;
+const EXIT_OK:ExitCode = ExitCode::SUCCESS;
 
 unsafe extern "C" {
 	fn pledge(promise:*const c_char, execpromise:*const c_char)->c_int;
@@ -105,30 +114,28 @@ impl LoginCap {
 		while let Some(line) = file_lines.next() {
 			
 			// Convert line to string
-			let mut data = match line {
-				Ok(ok)=> ok,
-				Err(e)=> return Err(e),
+			let mut data:&str = match line {
+				Ok(ok)=> &ok.clone(),
+				Err(e)=> return Err(Error::other(e)),
 			};
-			// skip remarks
+			// Skip remarks
 			if data.starts_with('#') {
 				continue;
 			}
 			// Set Class Name
 			if !found && data.starts_with(&self.lc_class) {
 				
-				// verify
-				found = self.class_from_str(&data);
-				
+				// verify class and seperate it 
+				let Some(colon) = data.find(':') else{ return Err(OERR_STR("bad format"))};
+				data = match data.split_at_checked(colon) {
+					Some((p,s)) => { found = self.lc_class == p; s }
+					None => return Err(OERR_STR("bad format")),
+				};
+				// println!("{data}");
 				// fail verify or data on another line
 				if !found || data.contains('\\') { 
 					continue; 
 				}
-				// single line class  
-				data = if let Some(s) = data.strip_prefix(&self.lc_class) { 
-						s.to_string() 
-				} else { 
-						return Err(Error::other(format!("bad format: {data}"))); 
-				};
 				/* fall through */
 			}
 			// process key value pairs						
@@ -139,13 +146,7 @@ impl LoginCap {
 				}
 			}
 		} // WHILE
-		Err(Error::other("not found"))
-	}
-	fn class_from_str(&mut self,data:&str)->bool 
-	{
-		let Some(end) = &data.find(':') else { return false }
-		self.lc_class == &data[0..end]
-		
+		Err(OERR_STR("not found"))
 	}
 	fn process_str(&mut self,data:&str)->Result<bool,Error>
 	{
@@ -201,7 +202,7 @@ impl LoginCap {
 					if start != data_len { end = ch.0 }else{ start = ch.0; end = start }, 
 				// good for debugging range above
 				(_,_) => { 
-					return Err(Error::other(format!("bad format @ {} in {data}",ch.1)));
+					return Err(OERR_FMT(format!("bad format @ {} in {data}",ch.1)));
 				}
 			}
 		}
@@ -225,7 +226,7 @@ impl LoginCap {
 	}
 	fn style(&self)->Option<String>
 	{
-		let Some(svec) = self.lc_cap.get("auth") else{ return None; };
+		let Some(svec) = self.lc_cap.get(STYLE_KEY) else{ return None; };
 		svec.get(0).cloned()
 	}
 	fn print(&self)
@@ -233,7 +234,19 @@ impl LoginCap {
 		println!("\n---Class: {}---",self.lc_class);
 		for (key,values) in self.lc_cap.iter() {
 			let hold = values.join(", ").to_string();
-			println!("{:<20} {}",key,hold);
+			
+			// Break Lines bigger then 20 + value.len()
+			if hold.len() <= 50 {
+				println!("{:<20} {}",key,hold);
+			}else{
+				let (line1,line2) = match &hold[50..].split_once(" ") {
+					Some(s) => s.clone(),
+					None => ("",&hold[50..]),
+				
+				};
+				println!("{:<20} {}{}",key,&hold[0..50],line1);
+				println!("{:<20} {}"," ",line2);
+			}
 		} 
 		if let Some(s) = &self.style() { 
 			println!("{:<20} {}","style",s);
@@ -242,8 +255,16 @@ impl LoginCap {
 	}
 }
 
-fn main()
+fn usage(progname:&str)->ExitCode
 {
+	println!("usage:{}  class_name",progname);
+	EXIT_FAIL
+}
+
+fn main()->ExitCode
+{
+	let args:Vec<String> = env::args().collect();
+		
 	if Path::new(PATH_LOGIN_CONFD).exists() {
 		if let Err(e) = bsd_unveil(PATH_LOGIN_CONFD,"r"){
 			eprintln!("{e}");
@@ -255,10 +276,11 @@ fn main()
 	if let Err(e) = bsd_pledge(PLEDGE,None){
 		eprintln!("{e}");
 	}
+	let Some(class) = args.get(1) else{ return usage(&args[0]) };
 	
-	let mut lc = match LoginCap::new("staff").search_file(){
+	let mut lc = match LoginCap::new(class).search_file(){
 		Ok(ok) => ok,
-		Err(e) => { eprintln!("{e}");return; }
+		Err(e) => { eprintln!("{e}");return EXIT_FAIL; }
 	};
 	lc.print();
 	
@@ -292,4 +314,5 @@ fn main()
 		}
 	}
 	lc.print();
+	EXIT_OK
 }
